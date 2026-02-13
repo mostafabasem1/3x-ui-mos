@@ -1,8 +1,7 @@
 # ========================================================
 # Stage: Builder
 # ========================================================
-# 1. جعلنا النسخة عامة لتجنب مشاكل التوافق
-FROM golang:alpine AS builder 
+FROM golang:1.25-alpine AS builder
 WORKDIR /app
 ARG TARGETARCH
 
@@ -17,28 +16,31 @@ COPY . .
 ENV CGO_ENABLED=1
 ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
 RUN go build -ldflags "-w -s" -o build/x-ui main.go
-# تأكد أن هذا الملف موجود لديك في السورس كود
-RUN ./DockerInit.sh "$TARGETARCH" 
+RUN ./DockerInit.sh "$TARGETARCH"
 
 # ========================================================
 # Stage: Final Image of 3x-ui
 # ========================================================
 FROM alpine
-# 2. تعديل التوقيت لمصر
-ENV TZ=Africa/Cairo 
+ENV TZ=Asia/Tehran
 WORKDIR /app
 
+# إضافة socat و acme.sh لمتطلبات SSL
 RUN apk add --no-cache --update \
   ca-certificates \
   tzdata \
   fail2ban \
   bash \
   curl \
-  openssl
+  openssl \
+  socat
 
 COPY --from=builder /app/build/ /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
+
+# تثبيت acme.sh لتوليد شهادات SSL
+RUN curl https://get.acme.sh | sh -s email=my@example.com
 
 # Configure fail2ban
 RUN rm -f /etc/fail2ban/jail.d/alpine-ssh.conf \
@@ -53,9 +55,9 @@ RUN chmod +x \
   /usr/bin/x-ui
 
 ENV XUI_ENABLE_FAIL2BAN="true"
-EXPOSE 2053
 
-# 3. إضافة مجلد الشهادات للحفاظ عليها
-VOLUME [ "/etc/x-ui", "/root/cert" ] 
+# ملاحظة: عند استخدام network_mode: host، تعليمات EXPOSE تصبح توثيقية فقط
+EXPOSE 2053
+VOLUME [ "/etc/x-ui" ]
 CMD [ "./x-ui" ]
 ENTRYPOINT [ "/app/DockerEntrypoint.sh" ]
